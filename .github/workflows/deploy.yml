@@ -8,7 +8,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: production
+    # environment: production  # Optional: Enable for deployment protection rules
 
     steps:
       - name: Checkout repository
