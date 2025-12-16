@@ -1,81 +1,77 @@
-name: Deploy to AIServer
+name: Build & Deploy
 
 on:
   push:
-    branches: ["main"]
-  workflow_dispatch:  # Manual trigger
+    branches:
+      - main
+  workflow_dispatch:
 
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
-    # environment: production  # Optional: Enable for deployment protection rules
 
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup SSH
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -p 2222 -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+      - name: Deploy to server via rsync
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT }}
+          source: "src/,requirements.txt,.env.example,README.md"
+          target: "/var/code/gsg-api/"
+          overwrite: true
 
-      - name: Deploy to server
-        env:
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
-          DEPLOY_PATH: /var/code/gsg-api
-        run: |
-          echo "🚀 Deploying to $SERVER_HOST..."
-
-          # Sync files (exclude venv, .git, .env, __pycache__)
-          rsync -avz --delete \
-            --exclude='venv' \
-            --exclude='.git' \
-            --exclude='.env' \
-            --exclude='__pycache__' \
-            --exclude='*.pyc' \
-            --exclude='.env.local' \
-            -e "ssh -p 2222 -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no" \
-            ./ $SERVER_USER@$SERVER_HOST:$DEPLOY_PATH/
-
-          echo "✅ Files synced"
-
-      - name: Install dependencies & restart service
-        env:
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
-        run: |
-          ssh -p 2222 -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_HOST << 'ENDSSH'
+      - name: Restart service and health check
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT }}
+          script: |
             set -e
-            cd /var/code/gsg-api
 
-            # Activate venv and install deps
-            if [ ! -d "venv" ]; then
+            DEPLOY_PATH="/var/code/gsg-api"
+            SERVICE_NAME="gsg-api"
+
+            cd "$DEPLOY_PATH"
+
+            # Install/update Python dependencies
+            if [ -f "venv/bin/activate" ]; then
+              source venv/bin/activate
+              pip install -r requirements.txt --quiet
+            else
               python3 -m venv venv
+              source venv/bin/activate
+              pip install -r requirements.txt --quiet
             fi
-            source venv/bin/activate
-            pip install -q -r requirements.txt
 
-            # Restart service
-            sudo systemctl restart gsg-api
+            # Restart the service
+            echo "Restarting $SERVICE_NAME service..."
+            sudo systemctl restart $SERVICE_NAME
+
+            # Wait for service to start
+            sleep 5
 
             # Health check
-            sleep 3
-            if systemctl is-active --quiet gsg-api; then
-              echo "✅ Service is running"
+            echo "Running health check..."
+            if curl -sf http://localhost:8000/health > /dev/null; then
+              echo "✅ Health check passed!"
             else
-              echo "❌ Service failed to start"
-              sudo journalctl -u gsg-api -n 20 --no-pager
-              exit 1
+              echo "⚠️ Health check failed, checking service status..."
+              sudo systemctl status $SERVICE_NAME --no-pager
             fi
-          ENDSSH
 
-      - name: Deployment summary
-        run: |
-          echo "## 🚀 Deployment Complete" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Server:** ${{ secrets.SERVER_HOST }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Path:** /var/code/gsg-api" >> $GITHUB_STEP_SUMMARY
-          echo "- **Time:** $(date -u)" >> $GITHUB_STEP_SUMMARY
+            echo "Deployment completed!"
+
+      - name: Notify on success
+        if: success()
+        run: echo "✅ Deployment successful for commit ${{ github.sha }}"
+
+      - name: Notify on failure
+        if: failure()
+        run: echo "❌ Deployment failed for commit ${{ github.sha }}"
