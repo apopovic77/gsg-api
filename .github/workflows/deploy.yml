@@ -40,16 +40,10 @@ jobs:
             git clone --depth 1 https://github.com/${{ github.repository }}.git repo
             cd repo
 
-            # Sync to aiserver
+            # Sync to aiserver using scp (tar + ssh)
             echo "📦 Syncing files to aiserver..."
-            rsync -avz --delete \
-              --exclude='venv' \
-              --exclude='.git' \
-              --exclude='.env' \
-              --exclude='__pycache__' \
-              --exclude='*.pyc' \
-              -e "ssh -i $AISERVER_KEY -o StrictHostKeyChecking=no" \
-              ./ $AISERVER_USER@$AISERVER:$DEPLOY_PATH/
+            tar czf - --exclude='venv' --exclude='.git' --exclude='.env' --exclude='__pycache__' --exclude='*.pyc' . | \
+              ssh -i $AISERVER_KEY -o StrictHostKeyChecking=no $AISERVER_USER@$AISERVER "cd $DEPLOY_PATH && tar xzf - --overwrite"
 
             echo "✅ Files synced"
 
