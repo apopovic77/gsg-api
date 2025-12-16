@@ -1,0 +1,38 @@
+# GSG API Server Configuration
+# Target: O'Neal AI Server (aiserver.oneal.eu)
+
+server:
+  name: "aiserver"
+  type: "python-api"
+  host: "aiserver.oneal.eu"
+  user: "gsgbot"
+  deploy_path: "/var/code/gsg-api"
+
+service:
+  type: "systemd"
+  name: "gsg-api"
+  port: 8000
+
+nginx:
+  enabled: false  # Using SSH tunnel to arkturian instead
+
+environment:
+  API_HOST: "0.0.0.0"
+  API_PORT: "8000"
+  API_DEBUG: "false"
+  API_KEYS: "{{SECRET}}"
+  MSSQL_HOST: "192.168.2.63"
+  MSSQL_PORT: "1433"
+  MSSQL_DATABASE: "lius"
+  MSSQL_USER: "gsgbotsql"
+  MSSQL_PASSWORD: "{{SECRET}}"
+
+python:
+  version: "3.13"
+  requirements: "requirements.txt"
+  venv_path: "venv"
+
+backup:
+  enabled: true
+  dir: "/var/backups"
+  prefix: "gsg-api"
