@@ -1,0 +1,81 @@
+name: Deploy to AIServer
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to server
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          DEPLOY_PATH: /var/code/gsg-api
+        run: |
+          echo "🚀 Deploying to $SERVER_HOST..."
+
+          # Sync files (exclude venv, .git, .env, __pycache__)
+          rsync -avz --delete \
+            --exclude='venv' \
+            --exclude='.git' \
+            --exclude='.env' \
+            --exclude='__pycache__' \
+            --exclude='*.pyc' \
+            --exclude='.env.local' \
+            -e "ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no" \
+            ./ $SERVER_USER@$SERVER_HOST:$DEPLOY_PATH/
+
+          echo "✅ Files synced"
+
+      - name: Install dependencies & restart service
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_HOST << 'ENDSSH'
+            set -e
+            cd /var/code/gsg-api
+
+            # Activate venv and install deps
+            if [ ! -d "venv" ]; then
+              python3 -m venv venv
+            fi
+            source venv/bin/activate
+            pip install -q -r requirements.txt
+
+            # Restart service
+            sudo systemctl restart gsg-api
+
+            # Health check
+            sleep 3
+            if systemctl is-active --quiet gsg-api; then
+              echo "✅ Service is running"
+            else
+              echo "❌ Service failed to start"
+              sudo journalctl -u gsg-api -n 20 --no-pager
+              exit 1
+            fi
+          ENDSSH
+
+      - name: Deployment summary
+        run: |
+          echo "## 🚀 Deployment Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Server:** ${{ secrets.SERVER_HOST }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Path:** /var/code/gsg-api" >> $GITHUB_STEP_SUMMARY
+          echo "- **Time:** $(date -u)" >> $GITHUB_STEP_SUMMARY
