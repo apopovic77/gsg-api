@@ -1,13 +1,17 @@
-name: Build & Deploy
+name: Deploy to Production
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
 
+env:
+  DEPLOY_PATH: /var/www/gsg-api
+  SERVICE_NAME: gsg-api
+
 jobs:
-  build-and-deploy:
+  deploy:
+    name: Deploy to aiserver via arkturian
     runs-on: ubuntu-latest
 
     steps:
@@ -26,62 +30,46 @@ jobs:
 
             AISERVER="aiserver.oneal.eu"
             AISERVER_USER="gsgbot"
-            AISERVER_KEY="~/.ssh/aiserver_deploy"
-            DEPLOY_PATH="/var/code/gsg-api"
-            SERVICE_NAME="gsg-api"
+            AISERVER_KEY="~/.ssh/oneal_aiserver"
+            DEPLOY_PATH="/var/www/gsg-api"
 
             echo "🚀 Deploying to $AISERVER via arkturian..."
 
-            # Create temp dir for the code
             TEMP_DIR=$(mktemp -d)
             cd $TEMP_DIR
 
-            # Clone the repo
             git clone --depth 1 https://github.com/${{ github.repository }}.git repo
             cd repo
 
-            # Sync to aiserver using scp (tar + ssh)
             echo "📦 Syncing files to aiserver..."
             tar czf - --exclude='venv' --exclude='.git' --exclude='.env' --exclude='__pycache__' --exclude='*.pyc' . | \
               ssh -i $AISERVER_KEY -o StrictHostKeyChecking=no $AISERVER_USER@$AISERVER "cd $DEPLOY_PATH && tar xzf - --overwrite"
 
             echo "✅ Files synced"
 
-            # Install deps and restart service on aiserver
             echo "🔄 Installing dependencies and restarting service..."
             ssh -i $AISERVER_KEY -o StrictHostKeyChecking=no $AISERVER_USER@$AISERVER << 'ENDSSH'
               set -e
-              cd /var/code/gsg-api
-
-              # Activate venv and install deps
-              if [ ! -d "venv" ]; then
-                python3 -m venv venv
-              fi
+              cd /var/www/gsg-api
               source venv/bin/activate
               pip install -q -r requirements.txt
-
-              # Restart service
               sudo systemctl restart gsg-api
-
-              # Health check
               sleep 3
               if curl -sf http://localhost:8000/health > /dev/null; then
                 echo "✅ Health check passed!"
               else
                 echo "⚠️ Health check failed"
-                sudo systemctl status gsg-api --no-pager || true
+                exit 1
               fi
             ENDSSH
 
-            # Cleanup
             rm -rf $TEMP_DIR
-
             echo "🎉 Deployment completed!"
 
       - name: Notify on success
         if: success()
-        run: echo "✅ Deployment successful for commit ${{ github.sha }}"
+        run: echo "✅ Deployment successful"
 
       - name: Notify on failure
         if: failure()
-        run: echo "❌ Deployment failed for commit ${{ github.sha }}"
+        run: echo "❌ Deployment failed"
