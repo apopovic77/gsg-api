@@ -14,59 +14,75 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Deploy to server via rsync
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          port: ${{ secrets.DEPLOY_PORT }}
-          source: "src/,requirements.txt,.env.example,README.md"
-          target: "/var/code/gsg-api/"
-          overwrite: true
-
-      - name: Restart service and health check
+      - name: Deploy via Arkturian Jump Host
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
+          host: arkturian.com
+          username: alex
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          port: ${{ secrets.DEPLOY_PORT }}
+          port: 22
           script: |
             set -e
 
+            AISERVER="aiserver.oneal.eu"
+            AISERVER_USER="gsgbot"
+            AISERVER_KEY="~/.ssh/aiserver_deploy"
             DEPLOY_PATH="/var/code/gsg-api"
             SERVICE_NAME="gsg-api"
 
-            cd "$DEPLOY_PATH"
+            echo "🚀 Deploying to $AISERVER via arkturian..."
 
-            # Install/update Python dependencies
-            if [ -f "venv/bin/activate" ]; then
+            # Create temp dir for the code
+            TEMP_DIR=$(mktemp -d)
+            cd $TEMP_DIR
+
+            # Clone the repo
+            git clone --depth 1 https://github.com/${{ github.repository }}.git repo
+            cd repo
+
+            # Sync to aiserver
+            echo "📦 Syncing files to aiserver..."
+            rsync -avz --delete \
+              --exclude='venv' \
+              --exclude='.git' \
+              --exclude='.env' \
+              --exclude='__pycache__' \
+              --exclude='*.pyc' \
+              -e "ssh -i $AISERVER_KEY -o StrictHostKeyChecking=no" \
+              ./ $AISERVER_USER@$AISERVER:$DEPLOY_PATH/
+
+            echo "✅ Files synced"
+
+            # Install deps and restart service on aiserver
+            echo "🔄 Installing dependencies and restarting service..."
+            ssh -i $AISERVER_KEY -o StrictHostKeyChecking=no $AISERVER_USER@$AISERVER << 'ENDSSH'
+              set -e
+              cd /var/code/gsg-api
+
+              # Activate venv and install deps
+              if [ ! -d "venv" ]; then
+                python3 -m venv venv
+              fi
               source venv/bin/activate
-              pip install -r requirements.txt --quiet
-            else
-              python3 -m venv venv
-              source venv/bin/activate
-              pip install -r requirements.txt --quiet
-            fi
+              pip install -q -r requirements.txt
 
-            # Restart the service
-            echo "Restarting $SERVICE_NAME service..."
-            sudo systemctl restart $SERVICE_NAME
+              # Restart service
+              sudo systemctl restart gsg-api
 
-            # Wait for service to start
-            sleep 5
+              # Health check
+              sleep 3
+              if curl -sf http://localhost:8000/health > /dev/null; then
+                echo "✅ Health check passed!"
+              else
+                echo "⚠️ Health check failed"
+                sudo systemctl status gsg-api --no-pager || true
+              fi
+            ENDSSH
 
-            # Health check
-            echo "Running health check..."
-            if curl -sf http://localhost:8000/health > /dev/null; then
-              echo "✅ Health check passed!"
-            else
-              echo "⚠️ Health check failed, checking service status..."
-              sudo systemctl status $SERVICE_NAME --no-pager
-            fi
+            # Cleanup
+            rm -rf $TEMP_DIR
 
-            echo "Deployment completed!"
+            echo "🎉 Deployment completed!"
 
       - name: Notify on success
         if: success()
