@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GSG API Console</title>
+    <link href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.0.0/styles/ag-grid.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.0.0/styles/ag-theme-alpine.css" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-tertiary: #21262d;
+            --border: #30363d;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --accent: #58a6ff;
+            --accent-hover: #79c0ff;
+            --success: #3fb950;
+            --warning: #d29922;
+            --danger: #f85149;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+
+        .header {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            font-size: 1.5em;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .header h1 span { color: var(--accent); }
+
+        .header-actions {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.85em;
+            color: var(--text-secondary);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--success);
+        }
+
+        .status-dot.error { background: var(--danger); }
+
+        .container {
+            display: flex;
+            height: calc(100vh - 65px);
+        }
+
+        .sidebar {
+            width: 240px;
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border);
+            padding: 16px;
+            overflow-y: auto;
+        }
+
+        .sidebar h3 {
+            font-size: 0.75em;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+            letter-spacing: 0.5px;
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.15s;
+            margin-bottom: 4px;
+            font-size: 0.9em;
+        }
+
+        .nav-item:hover { background: var(--bg-tertiary); }
+        .nav-item.active { background: var(--accent); color: #fff; }
+
+        .nav-item .count {
+            margin-left: auto;
+            background: var(--bg-tertiary);
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.8em;
+        }
+
+        .nav-item.active .count { background: rgba(255,255,255,0.2); }
+
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .toolbar {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            padding: 12px 20px;
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .search-box {
+            display: flex;
+            align-items: center;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 0 12px;
+            flex: 1;
+            max-width: 400px;
+        }
+
+        .search-box input {
+            background: transparent;
+            border: none;
+            color: var(--text-primary);
+            padding: 10px;
+            width: 100%;
+            font-size: 0.9em;
+        }
+
+        .search-box input:focus { outline: none; }
+        .search-box input::placeholder { color: var(--text-secondary); }
+
+        select, button {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 10px 16px;
+            border-radius: 6px;
+            font-size: 0.9em;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        select:hover, button:hover {
+            border-color: var(--accent);
+        }
+
+        button.primary {
+            background: var(--accent);
+            border-color: var(--accent);
+        }
+
+        button.primary:hover {
+            background: var(--accent-hover);
+        }
+
+        .grid-container {
+            flex: 1;
+            padding: 20px;
+            overflow: hidden;
+        }
+
+        #grid {
+            height: 100%;
+            width: 100%;
+        }
+
+        /* AG-Grid Dark Theme Override */
+        .ag-theme-alpine {
+            --ag-background-color: var(--bg-primary);
+            --ag-header-background-color: var(--bg-secondary);
+            --ag-odd-row-background-color: var(--bg-secondary);
+            --ag-row-hover-color: var(--bg-tertiary);
+            --ag-border-color: var(--border);
+            --ag-header-foreground-color: var(--text-primary);
+            --ag-foreground-color: var(--text-primary);
+            --ag-secondary-foreground-color: var(--text-secondary);
+        }
+
+        .ag-theme-alpine .ag-header-cell {
+            font-weight: 600;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: 500;
+        }
+
+        .badge-success { background: rgba(63, 185, 80, 0.2); color: var(--success); }
+        .badge-danger { background: rgba(248, 81, 73, 0.2); color: var(--danger); }
+        .badge-brand { background: rgba(88, 166, 255, 0.2); color: var(--accent); }
+
+        .stats-bar {
+            display: flex;
+            gap: 24px;
+            margin-left: auto;
+        }
+
+        .stat {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.2em;
+            font-weight: 600;
+            color: var(--accent);
+        }
+
+        .stat-label {
+            font-size: 0.75em;
+            color: var(--text-secondary);
+        }
+
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: var(--text-secondary);
+        }
+
+        .loading::after {
+            content: '';
+            width: 24px;
+            height: 24px;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-left: 12px;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.7);
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal.active { display: flex; }
+
+        .modal-content {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-body {
+            padding: 20px;
+        }
+
+        .modal-body table {
+            width: 100%;
+        }
+
+        .modal-body td {
+            padding: 8px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .modal-body td:first-child {
+            color: var(--text-secondary);
+            width: 140px;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 1.5em;
+            cursor: pointer;
+        }
+
+        .close-btn:hover { color: var(--text-primary); }
+
+        .key-input {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .key-input input {
+            flex: 1;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 10px 12px;
+            border-radius: 6px;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📦 <span>GSG</span> API Console</h1>
+        <div class="header-actions">
+            <div class="status">
+                <div class="status-dot" id="statusDot"></div>
+                <span id="statusText">Connecting...</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="sidebar">
+            <div class="key-input">
+                <input type="password" id="apiKey" placeholder="API Key" value="gsg-dev-key-2024">
+            </div>
+
+            <h3>Endpoints</h3>
+            <div class="nav-item active" data-endpoint="products">
+                📦 Produkte
+                <span class="count" id="productCount">-</span>
+            </div>
+            <div class="nav-item" data-endpoint="brands">
+                🏷️ Marken
+                <span class="count" id="brandCount">-</span>
+            </div>
+            <div class="nav-item" data-endpoint="categories">
+                📂 Kategorien
+                <span class="count" id="categoryCount">-</span>
+            </div>
+
+            <h3 style="margin-top: 24px;">Quick Filters</h3>
+            <div class="nav-item" data-filter="oneal">O'Neal Only</div>
+            <div class="nav-item" data-filter="oakley">Oakley Only</div>
+            <div class="nav-item" data-filter="lezyne">Lezyne Only</div>
+            <div class="nav-item" data-filter="active">Active Only</div>
+        </div>
+
+        <div class="main">
+            <div class="toolbar">
+                <div class="search-box">
+                    <span>🔍</span>
+                    <input type="text" id="searchInput" placeholder="Suche nach Nummer, Name, EAN...">
+                </div>
+
+                <select id="brandFilter">
+                    <option value="">Alle Marken</option>
+                </select>
+
+                <select id="limitSelect">
+                    <option value="50">50 Zeilen</option>
+                    <option value="100" selected>100 Zeilen</option>
+                    <option value="250">250 Zeilen</option>
+                    <option value="500">500 Zeilen</option>
+                </select>
+
+                <button onclick="loadData()">🔄 Refresh</button>
+                <button onclick="exportCSV()" class="primary">📊 Export CSV</button>
+
+                <div class="stats-bar">
+                    <div class="stat">
+                        <div class="stat-value" id="totalRows">-</div>
+                        <div class="stat-label">Gesamt</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value" id="displayedRows">-</div>
+                        <div class="stat-label">Angezeigt</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid-container">
+                <div id="grid" class="ag-theme-alpine"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Detail Modal -->
+    <div class="modal" id="detailModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalTitle">Produkt Details</h3>
+                <button class="close-btn" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="modalBody"></div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@31.0.0/dist/ag-grid-community.min.js"></script>
+    <script>
+        const API_BASE = window.location.origin;
+        let gridApi = null;
+        let currentEndpoint = 'products';
+        let allData = [];
+
+        // Column definitions for different endpoints
+        const columnDefs = {
+            products: [
+                { field: 'nummer', headerName: 'Artikel-Nr.', width: 120, pinned: 'left',
+                  cellRenderer: params => `<a href="#" onclick="showDetail('${params.value}')" style="color: var(--accent)">${params.value}</a>` },
+                { field: 'bezeichnung', headerName: 'Bezeichnung', flex: 2, minWidth: 200 },
+                { field: 'brand_name', headerName: 'Marke', width: 120,
+                  cellRenderer: params => `<span class="badge badge-brand">${params.value || '-'}</span>` },
+                { field: 'category_name', headerName: 'Kategorie', width: 150 },
+                { field: 'netto_eur', headerName: 'Preis €', width: 100, type: 'numericColumn',
+                  valueFormatter: params => params.value ? `€${parseFloat(params.value).toFixed(2)}` : '-' },
+                { field: 'ean', headerName: 'EAN', width: 140 },
+                { field: 'active', headerName: 'Status', width: 90,
+                  cellRenderer: params => params.value
+                    ? '<span class="badge badge-success">Aktiv</span>'
+                    : '<span class="badge badge-danger">Inaktiv</span>' }
+            ],
+            brands: [
+                { field: 'id', headerName: 'ID', width: 80 },
+                { field: 'name', headerName: 'Marke', flex: 1 },
+                { field: 'article_count', headerName: 'Artikel', width: 120, type: 'numericColumn',
+                  valueFormatter: params => params.value?.toLocaleString() }
+            ],
+            categories: [
+                { field: 'id', headerName: 'ID', width: 80 },
+                { field: 'name', headerName: 'Kategorie (DE)', flex: 1 },
+                { field: 'name_en', headerName: 'Kategorie (EN)', flex: 1 }
+            ]
+        };
+
+        // Initialize AG-Grid
+        function initGrid() {
+            const gridOptions = {
+                columnDefs: columnDefs.products,
+                defaultColDef: {
+                    sortable: true,
+                    filter: true,
+                    resizable: true,
+                },
+                rowSelection: 'multiple',
+                animateRows: true,
+                pagination: true,
+                paginationPageSize: 100,
+                onGridReady: () => {
+                    loadData();
+                    loadStats();
+                }
+            };
+
+            const gridDiv = document.getElementById('grid');
+            gridApi = agGrid.createGrid(gridDiv, gridOptions);
+        }
+
+        // API call helper
+        async function apiCall(endpoint, params = {}) {
+            const apiKey = document.getElementById('apiKey').value;
+            const url = new URL(`${API_BASE}${endpoint}`);
+            Object.entries(params).forEach(([k, v]) => {
+                if (v !== undefined && v !== '') url.searchParams.set(k, v);
+            });
+
+            const response = await fetch(url, {
+                headers: { 'x-api-key': apiKey }
+            });
+
+            if (!response.ok) throw new Error(`API Error: ${response.status}`);
+            return response.json();
+        }
+
+        // Load data
+        async function loadData() {
+            const statusDot = document.getElementById('statusDot');
+            const statusText = document.getElementById('statusText');
+
+            try {
+                statusDot.classList.remove('error');
+                statusText.textContent = 'Loading...';
+
+                const params = {
+                    limit: document.getElementById('limitSelect').value,
+                    search: document.getElementById('searchInput').value,
+                    brand_id: document.getElementById('brandFilter').value
+                };
+
+                let data;
+                if (currentEndpoint === 'products') {
+                    const result = await apiCall('/products', params);
+                    data = result.items;
+                    document.getElementById('totalRows').textContent = result.total.toLocaleString();
+                } else if (currentEndpoint === 'brands') {
+                    data = await apiCall('/brands');
+                } else if (currentEndpoint === 'categories') {
+                    data = await apiCall('/categories');
+                }
+
+                allData = data;
+                gridApi.setGridOption('columnDefs', columnDefs[currentEndpoint]);
+                gridApi.setGridOption('rowData', data);
+
+                document.getElementById('displayedRows').textContent = data.length.toLocaleString();
+                statusDot.classList.remove('error');
+                statusText.textContent = 'Connected';
+
+            } catch (error) {
+                console.error(error);
+                statusDot.classList.add('error');
+                statusText.textContent = 'Error: ' + error.message;
+            }
+        }
+
+        // Load stats for sidebar
+        async function loadStats() {
+            try {
+                const stats = await apiCall('/stats');
+                document.getElementById('productCount').textContent = stats.active_articles.toLocaleString();
+                document.getElementById('brandCount').textContent = stats.total_brands;
+
+                // Populate brand filter
+                const brands = await apiCall('/brands');
+                const select = document.getElementById('brandFilter');
+                brands.forEach(b => {
+                    const opt = document.createElement('option');
+                    opt.value = b.id;
+                    opt.textContent = `${b.name} (${b.article_count.toLocaleString()})`;
+                    select.appendChild(opt);
+                });
+
+                const categories = await apiCall('/categories');
+                document.getElementById('categoryCount').textContent = categories.length;
+
+            } catch (error) {
+                console.error('Stats error:', error);
+            }
+        }
+
+        // Show product detail
+        async function showDetail(nummer) {
+            try {
+                const product = await apiCall(`/products/${nummer}`);
+                const modal = document.getElementById('detailModal');
+                const title = document.getElementById('modalTitle');
+                const body = document.getElementById('modalBody');
+
+                title.textContent = `${product.nummer} - ${product.bezeichnung}`;
+                body.innerHTML = `
+                    <table>
+                        <tr><td>Artikelnummer</td><td><strong>${product.nummer}</strong></td></tr>
+                        <tr><td>Bezeichnung</td><td>${product.bezeichnung}</td></tr>
+                        <tr><td>Marke</td><td><span class="badge badge-brand">${product.brand_name || '-'}</span></td></tr>
+                        <tr><td>Kategorie</td><td>${product.category_name || '-'}</td></tr>
+                        <tr><td>Preis Netto</td><td><strong>€${parseFloat(product.netto_eur).toFixed(2)}</strong></td></tr>
+                        <tr><td>Preis Brutto</td><td>${product.brutto_eur ? '€' + parseFloat(product.brutto_eur).toFixed(2) : '-'}</td></tr>
+                        <tr><td>EAN</td><td><code>${product.ean || '-'}</code></td></tr>
+                        <tr><td>Gewicht</td><td>${product.gewicht_gramm ? product.gewicht_gramm + 'g' : '-'}</td></tr>
+                        <tr><td>Modelljahr</td><td>${product.modelljahr || '-'}</td></tr>
+                        <tr><td>ASIN</td><td>${product.asin || '-'}</td></tr>
+                        <tr><td>Hauptbild</td><td>${product.hauptbild || '-'}</td></tr>
+                        <tr><td>Bilder</td><td>${product.images?.map(i => i.path).join(', ') || '-'}</td></tr>
+                        <tr><td>Status</td><td>${product.active ? '<span class="badge badge-success">Aktiv</span>' : '<span class="badge badge-danger">Inaktiv</span>'}</td></tr>
+                        <tr><td>Kurztext</td><td>${product.artikeltext_kurz || '-'}</td></tr>
+                    </table>
+                `;
+
+                modal.classList.add('active');
+            } catch (error) {
+                alert('Error loading product: ' + error.message);
+            }
+            return false;
+        }
+
+        function closeModal() {
+            document.getElementById('detailModal').classList.remove('active');
+        }
+
+        // Export to CSV
+        function exportCSV() {
+            if (!allData.length) return;
+
+            const headers = Object.keys(allData[0]);
+            const csv = [
+                headers.join(';'),
+                ...allData.map(row => headers.map(h => `"${row[h] ?? ''}"`).join(';'))
+            ].join('\n');
+
+            const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `gsg-${currentEndpoint}-export.csv`;
+            a.click();
+        }
+
+        // Event Listeners
+        document.querySelectorAll('.nav-item[data-endpoint]').forEach(item => {
+            item.addEventListener('click', () => {
+                document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+                item.classList.add('active');
+                currentEndpoint = item.dataset.endpoint;
+                loadData();
+            });
+        });
+
+        document.querySelectorAll('.nav-item[data-filter]').forEach(item => {
+            item.addEventListener('click', () => {
+                const filter = item.dataset.filter;
+                const brandMap = { oneal: 7, oakley: 19, lezyne: 13 };
+
+                if (brandMap[filter]) {
+                    document.getElementById('brandFilter').value = brandMap[filter];
+                }
+                currentEndpoint = 'products';
+                document.querySelectorAll('.nav-item[data-endpoint]').forEach(i => i.classList.remove('active'));
+                document.querySelector('.nav-item[data-endpoint="products"]').classList.add('active');
+                loadData();
+            });
+        });
+
+        document.getElementById('searchInput').addEventListener('keyup', (e) => {
+            if (e.key === 'Enter') loadData();
+        });
+
+        document.getElementById('brandFilter').addEventListener('change', loadData);
+        document.getElementById('limitSelect').addEventListener('change', loadData);
+
+        document.getElementById('detailModal').addEventListener('click', (e) => {
+            if (e.target.id === 'detailModal') closeModal();
+        });
+
+        // Initialize
+        initGrid();
+    </script>
+</body>
+</html>
