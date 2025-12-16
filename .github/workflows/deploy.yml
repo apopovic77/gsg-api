@@ -1,81 +1,64 @@
-name: Deploy to AIServer
+name: Deploy to Production
 
 on:
   push:
-    branches: ["main"]
+    branches: [main]
   workflow_dispatch:  # Manual trigger
+
+env:
+  DEPLOY_PATH: /var/www/gsg-api
+  SERVICE_NAME: gsg-api
 
 jobs:
   deploy:
+    name: Deploy to aiserver via arkturian
     runs-on: ubuntu-latest
-    # environment: production  # Optional: Enable for deployment protection rules
 
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.ARKTURIAN_SSH_KEY }}
+
+      - name: Add known hosts
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -p 2222 -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+          ssh-keyscan -H arkturian.com >> ~/.ssh/known_hosts
 
-      - name: Deploy to server
-        env:
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
-          DEPLOY_PATH: /var/code/gsg-api
+      - name: Upload to arkturian
         run: |
-          echo "🚀 Deploying to $SERVER_HOST..."
-
-          # Sync files (exclude venv, .git, .env, __pycache__)
-          rsync -avz --delete \
+          rsync -azv --delete \
             --exclude='venv' \
             --exclude='.git' \
-            --exclude='.env' \
             --exclude='__pycache__' \
             --exclude='*.pyc' \
+            --exclude='.env' \
             --exclude='.env.local' \
-            -e "ssh -p 2222 -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no" \
-            ./ $SERVER_USER@$SERVER_HOST:$DEPLOY_PATH/
+            ./ alex@arkturian.com:/tmp/gsg-api-deploy/
 
-          echo "✅ Files synced"
-
-      - name: Install dependencies & restart service
-        env:
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
+      - name: Deploy to aiserver
         run: |
-          ssh -p 2222 -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_HOST << 'ENDSSH'
-            set -e
-            cd /var/code/gsg-api
+          ssh alex@arkturian.com << 'DEPLOY_SCRIPT'
+          set -e
+          echo "🚀 Deploying to aiserver..."
 
-            # Activate venv and install deps
-            if [ ! -d "venv" ]; then
-              python3 -m venv venv
-            fi
-            source venv/bin/activate
-            pip install -q -r requirements.txt
+          # Sync to aiserver
+          rsync -azv --delete \
+            --exclude='.env' \
+            /tmp/gsg-api-deploy/ \
+            gsgbot@aiserver.oneal.eu:/var/www/gsg-api/
 
-            # Restart service
-            sudo systemctl restart gsg-api
+          # Restart service
+          ssh gsgbot@aiserver.oneal.eu 'cd /var/www/gsg-api && source venv/bin/activate && pip install -r requirements.txt -q && sudo systemctl restart gsg-api'
 
-            # Health check
-            sleep 3
-            if systemctl is-active --quiet gsg-api; then
-              echo "✅ Service is running"
-            else
-              echo "❌ Service failed to start"
-              sudo journalctl -u gsg-api -n 20 --no-pager
-              exit 1
-            fi
-          ENDSSH
+          # Health check
+          sleep 3
+          ssh gsgbot@aiserver.oneal.eu 'curl -sf http://localhost:8000/health' && echo "✅ Healthy!" || exit 1
 
-      - name: Deployment summary
-        run: |
-          echo "## 🚀 Deployment Complete" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Server:** ${{ secrets.SERVER_HOST }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Path:** /var/code/gsg-api" >> $GITHUB_STEP_SUMMARY
-          echo "- **Time:** $(date -u)" >> $GITHUB_STEP_SUMMARY
+          # Cleanup
+          rm -rf /tmp/gsg-api-deploy
+          echo "✅ Deployment complete!"
+          DEPLOY_SCRIPT
